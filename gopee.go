@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"html/template"
@@ -91,9 +92,21 @@ func ProxyRequest(r *http.Request, w http.ResponseWriter) {
 	if decodedURL, err := decodeURL(path); err == nil {
 		// URL rewritten by GoPee
 		uri = decodedURL
+
+		// get
+		if r.URL.RawQuery != "" {
+			uri.RawQuery = r.URL.RawQuery
+		}
+
 	} else {
 		// Might be a plain-text URL which was not rewritten
 		// AJAX request ?
+
+		if r.Referer() == "" {
+			http.Redirect(w, r, "/", http.StatusFound)
+			return
+		}
+
 		path += "?" + r.URL.RawQuery
 		pathURI, err := url.Parse(path)
 		if err != nil {
@@ -111,12 +124,13 @@ func ProxyRequest(r *http.Request, w http.ResponseWriter) {
 			}
 		}
 	}
-	// log.Println(uri.String())
+
 	if uri == nil {
 		// return a 404
 		http.NotFound(w, r)
 	} else {
 		// try fetching the url
+		// log.Println("req:", uri.String())
 		proxyMan := &proxyManager{r, uri, nil}
 		proxyMan.Fetch(w)
 	}
@@ -132,11 +146,20 @@ func (pm *proxyManager) Fetch(w http.ResponseWriter) {
 	// Get the http client assigned to this session
 	// If a session does not exist or is expired, create a new session
 	httpClient, err := sessionManager.Start(w, pm.req)
-
 	if err != nil {
 		http.Error(w, "Unable to start session", http.StatusInternalServerError)
 		return
 	}
+
+	if pm.uri.Scheme == "https" {
+		tr := &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
+		httpClient.Transport = tr
+	}
+
 	req, _ := http.NewRequest(pm.req.Method, pm.uri.String(), pm.req.Body)
 	// Forward request headers to server
 	copyHeader(req.Header, pm.req.Header)
@@ -156,6 +179,7 @@ func (pm *proxyManager) Fetch(w http.ResponseWriter) {
 
 	// In case there was a url redirect
 	// http -> https, non-www -> www, login page
+
 	if pm.uri.String() != pm.resp.Request.URL.String() {
 		pm.uri = pm.resp.Request.URL
 		http.Redirect(w, pm.req, "/"+encodeURL([]byte(pm.uri.String())), 302)
@@ -274,9 +298,12 @@ func (pm *proxyManager) rewriteURI(src []byte, start int, end int) []byte {
 var templates = template.Must(template.ParseFiles("home.html"))
 
 func homeHandler(w http.ResponseWriter, r *http.Request) {
+	//log.Println(r.Method, r.URL.String())
+
 	if r.URL.Path[1:] == "" {
 		r.ParseForm()
 		enteredURL := r.FormValue("url")
+
 		if enteredURL != "" {
 			// Check if url attribute is set in GET / POST
 			uri, _ := url.Parse(enteredURL)
@@ -284,6 +311,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 			if uri.Scheme == "" {
 				uri.Scheme = "http"
 			}
+
 			http.Redirect(w, r, "/"+encodeURL([]byte(uri.String())), 302)
 			return
 		}
@@ -297,7 +325,7 @@ func main() {
 	httpHost := os.Getenv("HOST")
 	httpPort := os.Getenv("PORT")
 	if httpPort == "" {
-		httpPort = "8080"
+		httpPort = "80"
 	}
 
 	sessionManager = NewManager("gopee", 600) // client session expiry set to 600s (10mins)
