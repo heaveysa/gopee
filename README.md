@@ -1,7 +1,7 @@
 gopee
 -----
 
-HTTP Web Proxy - full-fledged, self-hosted proxy to access blocked websites. fork from https://github.com/madhurjain/gopee, but modify some bug, and support https web proxy.
+HTTP/HTTPS Web Proxy - full-fledged, self-hosted proxy to access blocked websites. fork from https://github.com/madhurjain/gopee, but modify some bug, and support https web proxy.
 
 Demo: https://winxxp-webproxy.herokuapp.com/
 
