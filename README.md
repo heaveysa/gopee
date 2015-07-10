@@ -5,7 +5,7 @@ HTTP Web Proxy - full-fledged, self-hosted proxy to access blocked websites
 
 Demo
 
-~~https://gopee.herokuapp.com/~~ (Terminated by Heroku)
+https://winxxp-webproxy.herokuapp.com/
 
 or
 
