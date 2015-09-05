@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
@@ -17,7 +18,7 @@ import (
 )
 
 // GopeeEncPrefix - encoding prefix used while encoding urls
-const GopeeEncPrefix = "xox"
+const GopeeEncPrefix = "winxxp"
 
 // Pre-compile RegEx
 var reBase = regexp.MustCompile(`base +href="(.*?)"`)
@@ -160,6 +161,8 @@ func (pm *proxyManager) Fetch(w http.ResponseWriter) {
 		httpClient.Transport = tr
 	}
 
+	// log.Println(pm.uri.String())
+
 	req, _ := http.NewRequest(pm.req.Method, pm.uri.String(), pm.req.Body)
 	// Forward request headers to server
 	copyHeader(req.Header, pm.req.Header)
@@ -188,18 +191,19 @@ func (pm *proxyManager) Fetch(w http.ResponseWriter) {
 
 	contentType := pm.resp.Header.Get("Content-Type")
 
-	// Forward response headers to client
-	copyHeader(w.Header(), pm.resp.Header)
-
-	w.WriteHeader(pm.resp.StatusCode)
-
 	// Rewrite all urls
 	if strings.Contains(contentType, "text/html") {
 		pm.rewriteHTML(w)
 	} else if strings.Contains(contentType, "text/css") {
 		pm.rewriteCSS(w)
+	} else if strings.Contains(contentType, "application/x-javascript") ||
+		strings.Contains(contentType, "image/jpeg") {
+		pm.gziped(w)
 	} else {
-		io.Copy(w, pm.resp.Body)
+		pm.gziped(w)
+		// copyHeader(w.Header(), pm.resp.Header)
+		// w.WriteHeader(pm.resp.StatusCode)
+		// io.Copy(w, pm.resp.Body)
 	}
 }
 
@@ -254,7 +258,15 @@ func (pm *proxyManager) rewriteHTML(w http.ResponseWriter) {
 		}
 		return s
 	})
-	w.Write(encodedBody)
+
+	pm.resp.Header.Set("Content-Encoding", "gzip")
+	delete(pm.resp.Header, "Content-Length")
+	copyHeader(w.Header(), pm.resp.Header)
+	w.WriteHeader(pm.resp.StatusCode)
+
+	z := gzip.NewWriter(w)
+	defer z.Close()
+	io.Copy(z, bytes.NewBuffer(encodedBody))
 }
 
 func (pm *proxyManager) rewriteCSS(w http.ResponseWriter) {
@@ -270,8 +282,15 @@ func (pm *proxyManager) rewriteCSS(w http.ResponseWriter) {
 		}
 		return s
 	})
-	w.Write(encodedBody)
 
+	pm.resp.Header.Set("Content-Encoding", "gzip")
+	delete(pm.resp.Header, "Content-Length")
+	copyHeader(w.Header(), pm.resp.Header)
+	w.WriteHeader(pm.resp.StatusCode)
+
+	z := gzip.NewWriter(w)
+	defer z.Close()
+	io.Copy(z, bytes.NewBuffer(encodedBody))
 }
 
 func (pm *proxyManager) rewriteURI(src []byte, start int, end int) []byte {
@@ -292,6 +311,17 @@ func (pm *proxyManager) rewriteURI(src []byte, start int, end int) []byte {
 	}
 	encodedString := encodeURL(src[start:end])
 	return bytes.Replace(src, src[start:end], []byte(encodedString), -1)
+}
+
+func (pm *proxyManager) gziped(w http.ResponseWriter) {
+	pm.resp.Header.Set("Content-Encoding", "gzip")
+	delete(pm.resp.Header, "Content-Length")
+	copyHeader(w.Header(), pm.resp.Header)
+	w.WriteHeader(pm.resp.StatusCode)
+
+	z := gzip.NewWriter(w)
+	defer z.Close()
+	io.Copy(z, pm.resp.Body)
 }
 
 // Cache templates
